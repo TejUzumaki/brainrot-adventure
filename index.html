@@ -1030,6 +1030,7 @@ window.addEventListener('pointerdown', resumeAudio);
    MODULE 13 — SOLDIER DUMMY (GLB, Idle anim, damage system)
 ============================================================ */
 const SOLDIER_URL = 'https://threejs.org/examples/models/gltf/Soldier.glb';
+const HIT_SPHERES = [ { x: 0, y: 2.02, z: 0, r: 0.15, zone: "head" }, { x: 0, y: 1.78, z: 0, r: 0.30, zone: "torso" }, { x: 0, y: 1.45, z: 0, r: 0.28, zone: "torso" }, { x: 0, y: 1.15, z: 0, r: 0.26, zone: "torso" }, { x: 0, y: 1.02, z: 0, r: 0.25, zone: "torso" }, { x: -0.36, y: 1.38, z: 0, r: 0.12, zone: "legs" }, { x: 0.36, y: 1.38, z: 0, r: 0.12, zone: "legs" }, { x: -0.13, y: 0.50, z: 0, r: 0.22, zone: "legs" }, { x: 0.13, y: 0.50, z: 0, r: 0.22, zone: "legs" } ];
 const dummy = {
     group: null, mixer: null, loaded: false,
     hp: 100, maxHp: 100, dead: false,
@@ -1046,7 +1047,7 @@ function mountDummy(model, animations) {
     // normalize to 1.8m tall, feet at local y = 0
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
-    model.scale.setScalar(1);
+    model.scale.setScalar(1.22);
     box.setFromObject(model);
     model.position.y = 0;
     wrap.add(model);
@@ -1315,19 +1316,7 @@ function update(dt) {
             if (wh) { burst(wh, 0xb0a898, 4, 2.5, 0.07, true); done = true; }
         }
         if (!done && dummy.loaded && !dummy.dead) {
-            const base = dummy.pos;
-            _v2.set(base.x, base.y + dummy.zones.head.y, base.z);
-            let hitP = segSphere(p.prev, p.mesh.position, _v2, dummy.zones.head.r);
-            let zone = 'head';
-            if (!hitP) {
-                _v2.set(base.x, base.y + dummy.zones.torso.y, base.z);
-                hitP = segSphere(p.prev, p.mesh.position, _v2, dummy.zones.torso.r);
-                zone = 'torso';
-            }
-            if (!hitP) {
-                _v2.set(base.x, base.y + dummy.zones.legs.y, base.z);
-                hitP = segSphere(p.prev, p.mesh.position, _v2, dummy.zones.legs.r);
-                zone = 'legs';
+const base = dummy.pos; let hitP = null, zone = "torso"; for (let zi = 0; zi < HIT_SPHERES.length && !hitP; zi++) { const hz = HIT_SPHERES[zi]; _v2.set(base.x + hz.x, base.y + hz.y, base.z + hz.z); hitP = segSphere(p.prev, p.mesh.position, _v2, hz.r); if (hitP) zone = hz.zone;
             }
             if (hitP) {
                 const dmg = dummy.zones[zone].dmg;
