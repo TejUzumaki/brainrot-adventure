@@ -1046,9 +1046,9 @@ function mountDummy(model, animations) {
     // normalize to 1.8m tall, feet at local y = 0
     const box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
-    if (size.y > 0.01) model.scale.setScalar(1.8 / size.y);
+    model.scale.setScalar(1);
     box.setFromObject(model);
-    model.position.y -= box.min.y;
+    model.position.y = 0;
     wrap.add(model);
     wrap.position.copy(dummy.pos);
     wrap.rotation.y = Math.PI;   // face the player spawn
@@ -1145,7 +1145,7 @@ function updateDummyHp() {
     if (!dummy.loaded || dummy.dead) { dummyHpEl.style.display = 'none'; return; }
     _v1.set(dummy.pos.x, dummy.pos.y + 2.15, dummy.pos.z).project(camera);
     if (_v1.z > 1) { dummyHpEl.style.display = 'none'; return; }
-    dummyHpEl.style.display = 'block';
+    dummyHpEl.style.display = 'none';
     dummyHpEl.style.left = ((_v1.x * 0.5 + 0.5) * window.innerWidth) + 'px';
     dummyHpEl.style.top = ((-_v1.y * 0.5 + 0.5) * window.innerHeight) + 'px';
     dummyHpFill.style.width = clamp(dummy.hp / dummy.maxHp * 100, 0, 100) + '%';
