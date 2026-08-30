@@ -707,10 +707,12 @@ function buildWorld() {
     scatterStones(worldGroup);
     // translucent boundary cuboid — we are inside it
     const boundGeo = new THREE.BoxGeometry(WORLD_HALF * 2, 36, WORLD_HALF * 2);
+    const boundU = { uTime: { value: 0 } };
+    window.__boundU = boundU;
     const boundMesh = new THREE.Mesh(boundGeo, new THREE.MeshBasicMaterial({ color: 0x67e8f9, transparent: true, opacity: 0.045, side: THREE.BackSide, depthWrite: false }));
     boundMesh.position.set(0, 18, 0);
     worldGroup.add(boundMesh);
-    const boundEdges = new THREE.LineSegments(new THREE.EdgesGeometry(boundGeo), new THREE.LineBasicMaterial({ color: 0x67e8f9, transparent: true, opacity: 0.35 }));
+    const boundEdges = new THREE.LineSegments(new THREE.EdgesGeometry(boundGeo), new THREE.LineBasicMaterial({ color: 0x67e8f9, transparent: true, opacity: 0.85 }));
     boundEdges.position.copy(boundMesh.position);
     worldGroup.add(boundEdges);
     scene.add(worldGroup);
@@ -1036,6 +1038,9 @@ const dummy = {
     hp: 100, maxHp: 100, dead: false,
     fallT: 0, respawnT: 0,
     pos: new THREE.Vector3(0, 0, -13),
+    actions: {}, state: 'idle', headBone: null, headT: 0,
+    wanderTarget: null, idleT: 2, walkSpeed: 1.6, runSpeed: 5.2,
+    evadeT: 0, strafeDir: 1, strafeT: 0, stuckT: 0, lastX: 0, lastZ: 0,
     zones: {
         head:  { y: 1.56, r: 0.17, dmg: 85 },
         torso: { y: 1.06, r: 0.34, dmg: 34 },
@@ -1057,10 +1062,18 @@ function mountDummy(model, animations) {
     scene.add(wrap);
     dummy.group = wrap;
     dummy.mixer = null;
+    dummy.actions = {};
+    dummy.state = 'idle';
+    dummy.headBone = null;
+    model.traverse(c => { if (c.isBone && /Head$/i.test(c.name)) dummy.headBone = c; });
     if (animations && animations.length) {
         dummy.mixer = new THREE.AnimationMixer(model);
-        const idleClip = THREE.AnimationClip.findByName(animations, 'Idle') || animations[0];
-        if (idleClip) dummy.mixer.clipAction(idleClip).play();
+        const find = n => THREE.AnimationClip.findByName(animations, n);
+        const wClip = find('Walk'), rClip = find('Run');
+        dummy.actions.idle = dummy.mixer.clipAction(find('Idle') || animations[0]);
+        dummy.actions.walk = wClip ? dummy.mixer.clipAction(wClip) : dummy.actions.idle;
+        dummy.actions.run = rClip ? dummy.mixer.clipAction(rClip) : dummy.actions.walk;
+        dummy.actions.idle.play();
     }
     dummy.loaded = true;
     dummy.dead = false;
@@ -1083,26 +1096,109 @@ function spawnMannequin() {
     box(0.18, 0.72, 0.2, 0.14, 0.36, 0, cloth);
     mountDummy(g, null);
 }
+function setDummyState(s) {
+    if (dummy.state === s) return;
+    const from = dummy.actions[dummy.state], to = dummy.actions[s];
+    dummy.state = s;
+    if (!dummy.actions.idle || !to || to === from) return;
+    to.reset().fadeIn(0.3).play();
+    if (from && from !== to) from.fadeOut(0.3);
+}
+function lerpAngle(a, b, t) {
+    let d = (b - a) % (Math.PI * 2);
+    if (d > Math.PI) d -= Math.PI * 2;
+    if (d < -Math.PI) d += Math.PI * 2;
+    return a + d * t;
+}
 function updateDummy(dt) {
     if (!dummy.loaded) return;
+    const m = dummy.group;
     if (dummy.mixer && !dummy.dead) dummy.mixer.update(dt);
     if (dummy.dead) {
         if (dummy.fallT < 0.5) {
             dummy.fallT += dt;
             const p = Math.min(1, dummy.fallT / 0.5);
-            dummy.group.rotation.x = -(p * p) * (Math.PI / 2) * 0.96;
+            m.rotation.x = -(p * p) * (Math.PI / 2) * 0.96;
         }
         dummy.respawnT -= dt;
         if (dummy.respawnT <= 0) {
             dummy.dead = false;
             dummy.hp = dummy.maxHp;
-            dummy.group.rotation.x = 0;
+            m.rotation.x = 0;
             dummy.fallT = 0;
+            dummy.evadeT = 0;
+            dummy.wanderTarget = null;
+            dummy.idleT = 1.5;
+            setDummyState('idle');
             _v1.copy(dummy.pos); _v1.y += 0.3;
             burst(_v1, 0x9a8a62, 8, 3, 0.12, true);
             sfxRespawn();
         }
+        return;
     }
+    // === AI: runs evasively when you are close or shooting it,
+    //        patrols on foot, idles and looks around when you are far ===
+    const dx = camera.position.x - dummy.pos.x;
+    const dz = camera.position.z - dummy.pos.z;
+    const dist = Math.hypot(dx, dz) || 0.001;
+    if (dummy.evadeT > 0) dummy.evadeT -= dt;
+    let mvx = 0, mvz = 0, speed = 0, targetYaw = null;
+    if (dist < 16 || dummy.evadeT > 0) {
+        setDummyState('run');
+        dummy.strafeT -= dt;
+        if (dummy.strafeT <= 0) { dummy.strafeT = 1.2 + Math.random() * 1.8; dummy.strafeDir = Math.random() < 0.5 ? 1 : -1; }
+        const nx = dx / dist, nz = dz / dist;
+        const ring = clamp((12 - dist) * 0.15, -1, 1);
+        mvx = -nz * dummy.strafeDir - nx * ring;
+        mvz = nx * dummy.strafeDir - nz * ring;
+        speed = dummy.runSpeed;
+    } else if (dummy.wanderTarget) {
+        const wx = dummy.wanderTarget.x - dummy.pos.x;
+        const wz = dummy.wanderTarget.z - dummy.pos.z;
+        const wd = Math.hypot(wx, wz);
+        if (wd < 1.2) {
+            dummy.wanderTarget = null;
+            dummy.idleT = 2 + Math.random() * 4;
+        } else {
+            setDummyState('walk');
+            mvx = wx / wd; mvz = wz / wd;
+            speed = dummy.walkSpeed;
+        }
+    } else {
+        setDummyState('idle');
+        dummy.idleT -= dt;
+        if (dummy.idleT <= 0) dummy.wanderTarget = { x: (Math.random() - 0.5) * 2 * (WORLD_HALF - 6), z: (Math.random() - 0.5) * 2 * (WORLD_HALF - 6) };
+        targetYaw = Math.atan2(dx, dz) + Math.PI; // watch you while idling
+    }
+    if (speed > 0) {
+        const ml = Math.hypot(mvx, mvz) || 1;
+        mvx /= ml; mvz /= ml;
+        dummy.pos.x += mvx * speed * dt;
+        dummy.pos.z += mvz * speed * dt;
+        const BOUND = WORLD_HALF - 1.2;
+        dummy.pos.x = clamp(dummy.pos.x, -BOUND, BOUND);
+        dummy.pos.z = clamp(dummy.pos.z, -BOUND, BOUND);
+        collideObstacles(dummy.pos, 0.5);
+        collideBoxes(dummy.pos, 0.45, dummy.pos.y, 1.9);
+        const step = speed * dt;
+        const movedSq = (dummy.pos.x - dummy.lastX) * (dummy.pos.x - dummy.lastX) + (dummy.pos.z - dummy.lastZ) * (dummy.pos.z - dummy.lastZ);
+        if (movedSq < step * step * 0.1) dummy.stuckT += dt; else dummy.stuckT = 0;
+        if (dummy.stuckT > 0.5) { dummy.stuckT = 0; dummy.wanderTarget = null; dummy.strafeT = 0; }
+        targetYaw = Math.atan2(mvx, mvz) + Math.PI;
+    }
+    if (dummy.headBone) {
+        if (dummy.state === 'idle') {
+            dummy.headT += dt;
+            dummy.headBone.rotation.y = Math.sin(dummy.headT * 0.7) * 0.6 + Math.sin(dummy.headT * 1.9) * 0.25;
+        } else {
+            dummy.headBone.rotation.y *= Math.max(0, 1 - dt * 6);
+        }
+    }
+    if (targetYaw !== null) m.rotation.y = lerpAngle(m.rotation.y, targetYaw, Math.min(1, dt * 8));
+    dummy.lastX = dummy.pos.x;
+    dummy.lastZ = dummy.pos.z;
+    dummy.pos.y = getTerrainHeight(dummy.pos.x, dummy.pos.z);
+    m.position.copy(dummy.pos);
 }
 /* floating damage numbers (pooled HTML) */
 const dmgLayer = el('dmg-layer');
@@ -1319,7 +1415,7 @@ function update(dt) {
 const base = dummy.pos; let hitP = null, zone = "torso"; for (let zi = 0; zi < HIT_SPHERES.length && !hitP; zi++) { const hz = HIT_SPHERES[zi]; _v2.set(base.x + hz.x, base.y + hz.y, base.z + hz.z); hitP = segSphere(p.prev, p.mesh.position, _v2, hz.r); if (hitP) zone = hz.zone;
             }
             if (hitP) {
-                const dmg = dummy.zones[zone].dmg;
+                const dmg = dummy.zones[zone].dmg; dummy.evadeT = 2.5;
                 dummy.hp -= dmg;
                 state.totalDmg += dmg;
                 scorePop();
@@ -1403,6 +1499,7 @@ function animate() {
     const dt = Math.min((now - lastTime) / 1000, 0.1);
     lastTime = now;
     update(dt);
+    if (window.__boundU) window.__boundU.uTime.value = now / 1000;
     renderer.render(scene, camera);
 }
 animate();
