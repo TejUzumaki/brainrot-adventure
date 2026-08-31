@@ -617,7 +617,7 @@ export class CombatSystem {
     }
     createRoom(code) {
         const g = this.g;
-        g.deploy();
+        g.prepareSession();
         this.mode = 'online';
         this.isHost = true;
         this.roomCode = code;
@@ -638,7 +638,7 @@ export class CombatSystem {
     }
     joinRoom(code) {
         const g = this.g;
-        g.deploy();
+        g.prepareSession();
         this.mode = 'online';
         this.isHost = false;
         this.roomCode = code;

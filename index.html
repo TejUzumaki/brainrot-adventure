@@ -1144,6 +1144,9 @@ function getLocalState() {
     const anim = lastMoveMag < 0.12 ? 'idle' : (lastMoveMag < 0.55 ? 'walk' : 'run');
     return { x: camera.position.x, z: camera.position.z, yaw: player.yaw, pitch: player.pitch, anim: anim };
 }
+function prepareSession() {
+    initAudio(); resumeAudio(); requestFS();
+}
 function deploy() {
     initAudio(); resumeAudio(); requestFS();
     document.getElementById('lobby').classList.add('hide');
@@ -1155,7 +1158,7 @@ const combat = new CombatSystem({
     collideBody, raySolid,
     spatial, burst, hitmark, scorePop, addShake, banner,
     damageFeedback: () => { damageFlash = Math.min(1, damageFlash + 0.6); addShake(0.3); sfxHurt(); },
-    setPhase, getLocalState, deploy,
+    setPhase, getLocalState, deploy, prepareSession,
     dmgLayer: el('dmg-layer'),
     sfx: { shotAt: sfxShotAt, hitFlesh: sfxHitFlesh, headshot: sfxHeadshot, hurt: sfxHurt, respawn: sfxRespawn, win: sfxWin, lose: sfxLose, beep: sfxBeep, heartbeat: sfxHeartbeat }
 });
